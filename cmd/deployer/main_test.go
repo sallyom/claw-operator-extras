@@ -342,60 +342,21 @@ func TestHandleDeleteCleansManagedSecretsWhenStateReadFails(t *testing.T) {
 	}
 }
 
-func TestHandleClawsListsAllVisibleNamespaces(t *testing.T) {
+func TestHandleClawsWithoutNamespaceListsOwnedProjects(t *testing.T) {
 	client := &http.Client{
 		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			require.Equal(t, http.MethodGet, r.Method)
-			require.Equal(t, "/apis/claw.sandbox.redhat.com/v1alpha1/claws", r.URL.Path)
-			body := `{
-				"items": [
-					{"metadata": {"namespace": "sallyom-claw", "name": "shifty"}},
-					{"metadata": {"namespace": "somalley-unmanaged-openclaw-test", "name": "unmanaged"}}
-				]
-			}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(body)),
-			}, nil
-		}),
-	}
-	s := &server{
-		apiServer:   "https://kubernetes.example.test",
-		bearerToken: "service-account-token",
-		client:      client,
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/claws", nil)
-	req.Header.Set("X-Forwarded-User", "sallyom")
-	rec := httptest.NewRecorder()
-
-	s.handleClaws(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var payload listResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
-	require.Len(t, payload.Claws, 2)
-	assert.Equal(t, "sallyom-claw", payload.Claws[0].Namespace)
-	assert.Equal(t, "shifty", payload.Claws[0].Name)
-	assert.Equal(t, "somalley-unmanaged-openclaw-test", payload.Claws[1].Namespace)
-	assert.Equal(t, "unmanaged", payload.Claws[1].Name)
-}
-
-func TestHandleClawsFallsBackToVisibleOpenShiftProjects(t *testing.T) {
-	client := &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			switch r.URL.Path {
-			case "/apis/claw.sandbox.redhat.com/v1alpha1/claws", "/api/v1/namespaces":
-				return &http.Response{
-					StatusCode: http.StatusForbidden,
-					Header:     make(http.Header),
-					Body:       io.NopCloser(strings.NewReader(`{"message":"forbidden"}`)),
-				}, nil
 			case "/apis/project.openshift.io/v1/projects":
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
-					Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"name":"sallyom-claw"}},{"metadata":{"name":"somalley-unmanaged-openclaw-test"}}]}`)),
+					Body: io.NopCloser(strings.NewReader(`{"items":[
+						{"metadata":{"name":"default"}},
+						{"metadata":{"name":"cooktheryan-claw","annotations":{"openshift.io/requester":"cooktheryan"}}},
+						{"metadata":{"name":"sallyom-claw","annotations":{"openshift.io/requester":"sallyom"}}},
+						{"metadata":{"name":"sallyom-claw-higgins","annotations":{"openshift.io/requester":"sallyom"}}}
+					]}`)),
 				}, nil
 			case "/apis/claw.sandbox.redhat.com/v1alpha1/namespaces/sallyom-claw/claws":
 				return &http.Response{
@@ -403,11 +364,11 @@ func TestHandleClawsFallsBackToVisibleOpenShiftProjects(t *testing.T) {
 					Header:     make(http.Header),
 					Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"namespace":"sallyom-claw","name":"shifty"}}]}`)),
 				}, nil
-			case "/apis/claw.sandbox.redhat.com/v1alpha1/namespaces/somalley-unmanaged-openclaw-test/claws":
+			case "/apis/claw.sandbox.redhat.com/v1alpha1/namespaces/sallyom-claw-higgins/claws":
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
-					Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"namespace":"somalley-unmanaged-openclaw-test","name":"unmanaged"}}]}`)),
+					Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"namespace":"sallyom-claw-higgins","name":"higgins"}}]}`)),
 				}, nil
 			default:
 				t.Fatalf("unexpected request path %s", r.URL.Path)
@@ -416,9 +377,10 @@ func TestHandleClawsFallsBackToVisibleOpenShiftProjects(t *testing.T) {
 		}),
 	}
 	s := &server{
-		apiServer:   "https://kubernetes.example.test",
-		bearerToken: "service-account-token",
-		client:      client,
+		apiServer:       "https://kubernetes.example.test",
+		bearerToken:     "service-account-token",
+		client:          client,
+		namespaceSuffix: defaultNSSuffix,
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/claws", nil)
 	req.Header.Set("X-Forwarded-User", "sallyom")
@@ -432,8 +394,82 @@ func TestHandleClawsFallsBackToVisibleOpenShiftProjects(t *testing.T) {
 	require.Len(t, payload.Claws, 2)
 	assert.Equal(t, "sallyom-claw", payload.Claws[0].Namespace)
 	assert.Equal(t, "shifty", payload.Claws[0].Name)
-	assert.Equal(t, "somalley-unmanaged-openclaw-test", payload.Claws[1].Namespace)
-	assert.Equal(t, "unmanaged", payload.Claws[1].Name)
+	assert.Equal(t, "sallyom-claw-higgins", payload.Claws[1].Namespace)
+	assert.Equal(t, "higgins", payload.Claws[1].Name)
+}
+
+func TestHandleClawsFallsBackToDefaultNamespaceWhenProjectsUnavailable(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			require.Equal(t, http.MethodGet, r.Method)
+			switch r.URL.Path {
+			case "/apis/project.openshift.io/v1/projects":
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"forbidden"}`)),
+				}, nil
+			case "/apis/claw.sandbox.redhat.com/v1alpha1/namespaces/sallyom-claw/claws":
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"namespace":"sallyom-claw","name":"shifty"}}]}`)),
+				}, nil
+			default:
+				t.Fatalf("unexpected request path %s", r.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+	s := &server{
+		apiServer:       "https://kubernetes.example.test",
+		bearerToken:     "service-account-token",
+		client:          client,
+		namespaceSuffix: defaultNSSuffix,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/claws", nil)
+	req.Header.Set("X-Forwarded-User", "sallyom")
+	rec := httptest.NewRecorder()
+
+	s.handleClaws(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var payload listResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Claws, 1)
+	assert.Equal(t, "sallyom-claw", payload.Claws[0].Namespace)
+	assert.Equal(t, "shifty", payload.Claws[0].Name)
+}
+
+func TestHandleClawsWithNamespaceListsRequestedNamespace(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			require.Equal(t, http.MethodGet, r.Method)
+			require.Equal(t, "/apis/claw.sandbox.redhat.com/v1alpha1/namespaces/custom-claw/claws", r.URL.Path)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"items":[{"metadata":{"namespace":"custom-claw","name":"custom"}}]}`)),
+			}, nil
+		}),
+	}
+	s := &server{
+		apiServer:   "https://kubernetes.example.test",
+		bearerToken: "service-account-token",
+		client:      client,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/claws?namespace=custom-claw", nil)
+	req.Header.Set("X-Forwarded-User", "sallyom")
+	rec := httptest.NewRecorder()
+
+	s.handleClaws(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var payload listResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Claws, 1)
+	assert.Equal(t, "custom-claw", payload.Claws[0].Namespace)
+	assert.Equal(t, "custom", payload.Claws[0].Name)
 }
 
 func TestNormalizeModelRef(t *testing.T) {

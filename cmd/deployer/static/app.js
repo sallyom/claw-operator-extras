@@ -185,15 +185,14 @@ async function init() {
   await refresh();
 }
 
-// One-time cluster-wide read so the namespace field can suggest every namespace
-// the user can see, without making each refresh list Claws cluster-wide.
 async function loadNamespaceSuggestions() {
   try {
     const all = await api("/api/claws");
     state.namespaceSuggestions = [...new Set((all.claws || []).map((claw) => claw.namespace).filter(Boolean))].sort();
     renderNamespaceOptions([]);
   } catch {
-    // Best effort: the namespace field stays editable without suggestions.
+    state.namespaceSuggestions = state.namespace ? [state.namespace] : [];
+    renderNamespaceOptions([]);
   }
 }
 

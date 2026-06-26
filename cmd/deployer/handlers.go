@@ -89,11 +89,10 @@ func (s *server) handleClaws(w http.ResponseWriter, r *http.Request) {
 	}
 
 	namespace := r.URL.Query().Get("namespace")
-
 	var claws []stateResponse
 	var listErr error
 	if namespace == "" {
-		claws, listErr = s.listAllClaws(r.Context(), identity)
+		claws, listErr = s.listClawsByOwnedProjects(r.Context(), identity)
 	} else {
 		if err := validateNamespace(namespace); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -101,9 +100,10 @@ func (s *server) handleClaws(w http.ResponseWriter, r *http.Request) {
 		}
 		claws, listErr = s.listClaws(r.Context(), identity, namespace)
 	}
+
 	if listErr != nil {
 		var apiErr apiError
-		if errors.As(listErr, &apiErr) && (apiErr.StatusCode == http.StatusNotFound || (namespace != "" && apiErr.StatusCode == http.StatusForbidden)) {
+		if errors.As(listErr, &apiErr) && (apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusForbidden) {
 			writeJSON(w, http.StatusOK, listResponse{Claws: []stateResponse{}})
 			return
 		}

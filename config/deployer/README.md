@@ -101,7 +101,7 @@ By default, the deployer suggests namespace `sallyom-claw` for user `sallyom`.
 Users whose login already ends with `-claw` get that exact namespace as the
 suggestion. Set `CLAW_NAMESPACE_SUFFIX` on the deployer container to use a
 different suffix. The UI keeps the field editable and suggests namespaces from
-Claws the user can see.
+OpenShift projects requested by the user.
 
 The deployer binary defaults new Claws to `spec.config.management=operator`.
 These manifests set `CLAW_CONFIG_MANAGEMENT_DEFAULT=user` so this deployer

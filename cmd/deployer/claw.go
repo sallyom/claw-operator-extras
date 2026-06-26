@@ -33,20 +33,8 @@ func (s *server) listClaws(ctx context.Context, identity userIdentity, namespace
 	return clawStatesFromList(list), nil
 }
 
-func (s *server) listAllClaws(ctx context.Context, identity userIdentity) ([]stateResponse, error) {
-	var list map[string]any
-	if err := s.kubeJSON(ctx, identity, http.MethodGet, "/apis/claw.sandbox.redhat.com/v1alpha1/claws", nil, &list); err != nil {
-		var apiErr apiError
-		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
-			return nil, err
-		}
-		return s.listClawsByVisibleNamespaces(ctx, identity)
-	}
-	return clawStatesFromList(list), nil
-}
-
-func (s *server) listClawsByVisibleNamespaces(ctx context.Context, identity userIdentity) ([]stateResponse, error) {
-	namespaces, err := s.visibleNamespaceNames(ctx, identity)
+func (s *server) listClawsByOwnedProjects(ctx context.Context, identity userIdentity) ([]stateResponse, error) {
+	namespaces, err := s.ownedProjectNames(ctx, identity)
 	if err != nil {
 		return nil, err
 	}
@@ -66,31 +54,38 @@ func (s *server) listClawsByVisibleNamespaces(ctx context.Context, identity user
 	return claws, nil
 }
 
-func (s *server) visibleNamespaceNames(ctx context.Context, identity userIdentity) ([]string, error) {
-	var namespaceList map[string]any
-	if err := s.kubeJSON(ctx, identity, http.MethodGet, "/api/v1/namespaces", nil, &namespaceList); err != nil {
+func (s *server) ownedProjectNames(ctx context.Context, identity userIdentity) ([]string, error) {
+	defaultNamespace := allowedNamespaceForUser(identity.Name, s.namespaceSuffix)
+	var projectList map[string]any
+	if err := s.kubeJSON(ctx, identity, http.MethodGet, "/apis/project.openshift.io/v1/projects", nil, &projectList); err != nil {
 		var apiErr apiError
-		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		if !errors.As(err, &apiErr) || (apiErr.StatusCode != http.StatusForbidden && apiErr.StatusCode != http.StatusNotFound) {
 			return nil, err
 		}
-		var projectList map[string]any
-		if projectErr := s.kubeJSON(ctx, identity, http.MethodGet, "/apis/project.openshift.io/v1/projects", nil, &projectList); projectErr != nil {
-			return nil, projectErr
+		if defaultNamespace == "" {
+			return []string{}, nil
 		}
-		namespaceList = projectList
+		return []string{defaultNamespace}, nil
 	}
-	items, _, _ := nestedSlice(namespaceList, "items")
+	items, _, _ := nestedSlice(projectList, "items")
 	names := make([]string, 0, len(items))
 	for _, item := range items {
-		namespace, ok := item.(map[string]any)
+		project, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		name, _, _ := nestedString(namespace, "metadata", "name")
+		requester, _, _ := nestedString(project, "metadata", "annotations", "openshift.io/requester")
+		if requester != identity.Name {
+			continue
+		}
+		name, _, _ := nestedString(project, "metadata", "name")
 		if name == "" {
 			continue
 		}
 		names = append(names, name)
+	}
+	if defaultNamespace != "" {
+		names = appendUnique(names, defaultNamespace)
 	}
 	sort.Strings(names)
 	return names, nil
