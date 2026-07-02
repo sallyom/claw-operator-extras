@@ -55,6 +55,8 @@ type provisionRequest struct {
 	Model       string `json:"model"`
 	Provider    string `json:"provider"`
 	APIKey      string `json:"apiKey"`
+	SecretName  string `json:"secretName"`
+	SecretKey   string `json:"secretKey"`
 	GCPProject  string `json:"gcpProject"`
 	GCPLocation string `json:"gcpLocation"`
 	Management  string `json:"management"`
@@ -66,8 +68,40 @@ type provisionRequest struct {
 	GitURL           string `json:"gitURL"`
 	GitRef           string `json:"gitRef"`
 	GitPath          string `json:"gitPath"`
+	GitSecretName    string `json:"gitSecretName"`
+	GitUsername      string `json:"gitUsername"`
+	GitPassword      string `json:"gitPassword"`
 	ConfigMapName    string `json:"configMapName"`
 	ConfigMapKey     string `json:"configMapKey"`
+
+	Integrations []integrationRequest `json:"integrations"`
+}
+
+type integrationRequest struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+
+	SecretName  string `json:"secretName"`
+	SecretKey   string `json:"secretKey"`
+	SecretValue string `json:"secretValue"`
+
+	AppSecretName  string `json:"appSecretName"`
+	AppSecretKey   string `json:"appSecretKey"`
+	AppSecretValue string `json:"appSecretValue"`
+
+	CredentialType string `json:"credentialType"`
+	Provider       string `json:"provider"`
+	Channel        string `json:"channel"`
+	Domain         string `json:"domain"`
+	Header         string `json:"header"`
+	ValuePrefix    string `json:"valuePrefix"`
+	PathPrefix     string `json:"pathPrefix"`
+	GCPProject     string `json:"gcpProject"`
+	GCPLocation    string `json:"gcpLocation"`
+	OAuthClientID  string `json:"oauthClientID"`
+	OAuthTokenURL  string `json:"oauthTokenURL"`
+	OAuthScopes    string `json:"oauthScopes"`
+	ChannelConfig  string `json:"channelConfig"`
 }
 
 type meResponse struct {
@@ -91,7 +125,7 @@ type stateResponse struct {
 	AgentName   string   `json:"agentName,omitempty"`
 	Management  string   `json:"management,omitempty"`
 	CreatedAt   string   `json:"createdAt,omitempty"`
-	SecretNames []string `json:"-"`
+	SecretNames []string `json:"secretNames,omitempty"`
 }
 
 type listResponse struct {

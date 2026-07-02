@@ -1,17 +1,31 @@
+function storedIntegrations() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("openclaw-deployer.integrations") || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 const state = {
   namespace: localStorage.getItem("openclaw-deployer.namespace") || "",
   provider: localStorage.getItem("openclaw-deployer.provider") || "openrouter",
   selectedName: localStorage.getItem("openclaw-deployer.name") || "instance",
   model: localStorage.getItem("openclaw-deployer.model") || "",
+  secretName: localStorage.getItem("openclaw-deployer.secretName") || "",
+  secretKey: localStorage.getItem("openclaw-deployer.secretKey") || "",
   gcpProject: localStorage.getItem("openclaw-deployer.gcpProject") || "",
   gcpLocation: localStorage.getItem("openclaw-deployer.gcpLocation") || "",
   filesystemSource: localStorage.getItem("openclaw-deployer.filesystemSource") || "",
   gitURL: localStorage.getItem("openclaw-deployer.gitURL") || "",
   gitRef: localStorage.getItem("openclaw-deployer.gitRef") || "",
   gitPath: localStorage.getItem("openclaw-deployer.gitPath") || "",
+  gitSecretName: localStorage.getItem("openclaw-deployer.gitSecretName") || "",
+  integrations: storedIntegrations(),
   theme: localStorage.getItem("openclaw-deployer.theme") === "dark" ? "dark" : "light",
   claws: [],
   namespaceSuggestions: [],
+  currentSecretNames: [],
   exists: false,
   ready: false,
   submitted: false,
@@ -55,6 +69,19 @@ const modelOptions = {
 
 const googleVertexProviders = new Set(["anthropic-vertex", "google-vertex"]);
 
+const integrationLabels = {
+  "channel-telegram": "Telegram channel",
+  "channel-discord": "Discord channel",
+  "channel-slack": "Slack channel",
+  "channel-whatsapp": "WhatsApp channel",
+  "websearch-brave": "Brave web search",
+  "websearch-tavily": "Tavily web search",
+  "websearch-duckduckgo": "DuckDuckGo web search",
+  "websearch-gemini": "Gemini web search",
+  "auth-password": "Gateway password auth",
+  "custom-credential": "Custom credential",
+};
+
 const defaultGCPLocations = {
   "anthropic-vertex": "us-east5",
   "google-vertex": "us-central1",
@@ -79,6 +106,10 @@ const els = {
   vertexHelp: document.getElementById("vertex-help"),
   apiKey: document.getElementById("apiKey"),
   gcpCredentials: document.getElementById("gcpCredentials"),
+  secretName: document.getElementById("secretName"),
+  secretKey: document.getElementById("secretKey"),
+  secretNameHint: document.getElementById("secret-name-hint"),
+  secretNamePreview: document.getElementById("secret-name-preview"),
   advancedToggle: document.getElementById("advanced-toggle"),
   advancedCaret: document.getElementById("advanced-caret"),
   advancedBody: document.getElementById("advanced-body"),
@@ -89,6 +120,49 @@ const els = {
   gitURL: document.getElementById("gitURL"),
   gitRef: document.getElementById("gitRef"),
   gitPath: document.getElementById("gitPath"),
+  gitSecretName: document.getElementById("gitSecretName"),
+  gitUsername: document.getElementById("gitUsername"),
+  gitPassword: document.getElementById("gitPassword"),
+  detailsToggle: document.getElementById("details-toggle"),
+  detailsCaret: document.getElementById("details-caret"),
+  detailsBody: document.getElementById("details-body"),
+  providerToggle: document.getElementById("provider-toggle"),
+  providerCaret: document.getElementById("provider-caret"),
+  providerBody: document.getElementById("provider-body"),
+  credentialToggle: document.getElementById("credential-toggle"),
+  credentialCaret: document.getElementById("credential-caret"),
+  credentialBody: document.getElementById("credential-body"),
+  integrationType: document.getElementById("integrationType"),
+  integrationToggle: document.getElementById("integration-toggle"),
+  integrationCaret: document.getElementById("integration-caret"),
+  integrationBody: document.getElementById("integration-body"),
+  integrationHelp: document.getElementById("integration-help"),
+  integrationName: document.getElementById("integrationName"),
+  integrationNameField: document.getElementById("integration-name-field"),
+  integrationSecretFields: document.getElementById("integration-secret-fields"),
+  integrationSecretValue: document.getElementById("integrationSecretValue"),
+  integrationSecretName: document.getElementById("integrationSecretName"),
+  integrationSecretKey: document.getElementById("integrationSecretKey"),
+  integrationSlackFields: document.getElementById("integration-slack-fields"),
+  integrationAppSecretValue: document.getElementById("integrationAppSecretValue"),
+  integrationAppSecretName: document.getElementById("integrationAppSecretName"),
+  integrationAppSecretKey: document.getElementById("integrationAppSecretKey"),
+  integrationCustomFields: document.getElementById("integration-custom-fields"),
+  integrationCredentialType: document.getElementById("integrationCredentialType"),
+  integrationDomain: document.getElementById("integrationDomain"),
+  integrationProvider: document.getElementById("integrationProvider"),
+  integrationHeader: document.getElementById("integrationHeader"),
+  integrationValuePrefix: document.getElementById("integrationValuePrefix"),
+  integrationPathPrefix: document.getElementById("integrationPathPrefix"),
+  integrationTypedChannelConfigField: document.getElementById("integration-typed-channel-config-field"),
+  integrationDmPolicy: document.getElementById("integrationDmPolicy"),
+  integrationAllowFrom: document.getElementById("integrationAllowFrom"),
+  integrationDmPolicyHint: document.getElementById("integration-dm-policy-hint"),
+  integrationAllowFromHint: document.getElementById("integration-allow-from-hint"),
+  integrationChannelConfigField: document.getElementById("integration-channel-config-field"),
+  integrationChannelConfig: document.getElementById("integrationChannelConfig"),
+  integrationAdd: document.getElementById("integration-add"),
+  integrationList: document.getElementById("integration-list"),
   uploadBox: document.getElementById("upload-box"),
   agentFiles: document.getElementById("agentFiles"),
   uploadName: document.getElementById("upload-name"),
@@ -111,17 +185,23 @@ els.namespace.value = state.namespace;
 els.clawName.value = state.selectedName;
 els.provider.value = state.provider;
 els.model.value = state.model;
+els.secretName.value = state.secretName;
+els.secretKey.value = state.secretKey;
 els.gcpProject.value = state.gcpProject;
 els.gcpLocation.value = state.gcpLocation || defaultGCPLocations[state.provider] || "";
 els.filesystemSource.value = state.filesystemSource;
 els.gitURL.value = state.gitURL;
 els.gitRef.value = state.gitRef;
 els.gitPath.value = state.gitPath;
+els.gitSecretName.value = state.gitSecretName;
 
 applyTheme(state.theme);
 renderModelOptions();
 renderCredentialFields();
 renderFilesystemSource();
+renderIntegrationFields();
+renderIntegrations();
+setIntegrationOpen(state.integrations.length > 0);
 renderReview();
 
 // ---------- helpers ----------
@@ -140,6 +220,34 @@ function inferredManagement() {
 
 function effectiveModel() {
   return els.model.value.trim() || modelDefaults[els.provider.value] || "";
+}
+
+function credentialNameForProvider(provider) {
+  if (provider === "anthropic-vertex" || provider === "google-vertex") {
+    return provider;
+  }
+  return provider;
+}
+
+function defaultSecretName() {
+  const name = els.clawName.value.trim() || "instance";
+  const credentialName = credentialNameForProvider(els.provider.value);
+  if (isGoogleVertex()) {
+    return `openclaw-${name}-${credentialName}-gcp`;
+  }
+  return `openclaw-${name}-${credentialName}-api-key`;
+}
+
+function effectiveSecretName() {
+  return els.secretName.value.trim() || defaultSecretName();
+}
+
+function expectedSecretKey() {
+  return isGoogleVertex() ? "sa-key.json" : "api-key";
+}
+
+function effectiveSecretKey() {
+  return els.secretKey.value.trim() || expectedSecretKey();
 }
 
 function applyTheme(theme) {
@@ -201,14 +309,20 @@ async function refresh() {
   state.selectedName = els.clawName.value.trim() || "instance";
   state.provider = els.provider.value;
   state.model = els.model.value.trim();
+  state.secretName = els.secretName.value.trim();
+  state.secretKey = els.secretKey.value.trim();
   state.gcpProject = els.gcpProject.value.trim();
   state.gcpLocation = els.gcpLocation.value.trim();
+  state.gitSecretName = els.gitSecretName.value.trim();
   localStorage.setItem("openclaw-deployer.namespace", state.namespace);
   localStorage.setItem("openclaw-deployer.name", state.selectedName);
   localStorage.setItem("openclaw-deployer.provider", state.provider);
   localStorage.setItem("openclaw-deployer.model", state.model);
+  localStorage.setItem("openclaw-deployer.secretName", state.secretName);
+  localStorage.setItem("openclaw-deployer.secretKey", state.secretKey);
   localStorage.setItem("openclaw-deployer.gcpProject", state.gcpProject);
   localStorage.setItem("openclaw-deployer.gcpLocation", state.gcpLocation);
+  localStorage.setItem("openclaw-deployer.gitSecretName", state.gitSecretName);
 
   setStatus("Checking status…");
   try {
@@ -230,14 +344,17 @@ function renderList(claws) {
   state.exists = Boolean(selected);
   state.ready = Boolean(selected && selected.ready);
   if (selected) {
+    state.currentSecretNames = selected.secretNames || [];
     if (selected.model) {
       els.model.value = selected.model;
       state.model = selected.model;
       localStorage.setItem("openclaw-deployer.model", selected.model);
     }
+  } else {
+    state.currentSecretNames = [];
   }
 
-  els.provision.textContent = state.exists ? "Add/update provider" : "Create";
+  els.provision.textContent = state.exists ? "Update Claw YAML" : "Create OpenClaw";
   renderClaws(claws);
   renderReview();
 
@@ -437,6 +554,17 @@ function renderCredentialFields() {
   if (vertex && !els.gcpLocation.value.trim()) {
     els.gcpLocation.value = defaultGCPLocations[els.provider.value] || "";
   }
+  renderCredentialSecretHint();
+}
+
+function renderCredentialSecretHint() {
+  const name = effectiveSecretName();
+  const key = effectiveSecretKey();
+  els.secretNamePreview.textContent = `${name}/${key}`;
+  els.secretName.placeholder = defaultSecretName();
+  els.secretKey.placeholder = expectedSecretKey();
+  document.getElementById("hint-secret-name").innerHTML =
+    `Applies to either choice above. Used as the key in the generated or existing Kubernetes Secret data, for example <code>${key}: &lt;value&gt;</code>.`;
 }
 
 function renderFilesystemSource() {
@@ -446,10 +574,211 @@ function renderFilesystemSource() {
   els.workspaceSourceHelp.hidden = source === "";
 }
 
+function renderIntegrationFields() {
+  const kind = els.integrationType.value;
+  const custom = kind === "custom-credential";
+  const slack = kind === "channel-slack";
+  const typedChannelConfig = kind === "channel-telegram" || kind === "channel-slack";
+  const noSecret = kind === "channel-whatsapp" || kind === "websearch-duckduckgo" || kind === "websearch-gemini" ||
+    (kind === "custom-credential" && els.integrationCredentialType.value === "none");
+  const channel = kind.startsWith("channel-");
+  els.integrationCustomFields.hidden = !custom;
+  els.integrationSlackFields.hidden = !slack;
+  els.integrationSecretFields.hidden = noSecret;
+  els.integrationTypedChannelConfigField.hidden = !typedChannelConfig;
+  els.integrationChannelConfigField.hidden = !channel || kind === "channel-whatsapp" || typedChannelConfig;
+  els.integrationName.placeholder = defaultIntegrationName(kind);
+  els.integrationSecretKey.placeholder = defaultIntegrationSecretKey(kind);
+  els.integrationHelp.textContent = integrationHelp(kind);
+  renderTypedChannelConfigHints(kind);
+}
+
+function defaultIntegrationName(kind) {
+  return {
+    "channel-telegram": "telegram",
+    "channel-discord": "discord",
+    "channel-slack": "slack",
+    "channel-whatsapp": "whatsapp",
+    "websearch-brave": "brave-search",
+    "websearch-tavily": "tavily-search",
+    "auth-password": "gateway-password",
+    "custom-credential": "my-credential",
+  }[kind] || "";
+}
+
+function defaultIntegrationSecretKey(kind) {
+  return {
+    "channel-telegram": "bot-token",
+    "channel-discord": "bot-token",
+    "channel-slack": "bot-token",
+    "auth-password": "password",
+  }[kind] || "api-key";
+}
+
+function integrationHelp(kind) {
+  if (kind.startsWith("channel-")) {
+    return "Creates a spec.credentials entry with channel set; the operator infers proxy and OpenClaw channel config.";
+  }
+  if (kind.startsWith("websearch-")) {
+    return "Creates spec.webSearch using the operator-managed web search provider.";
+  }
+  if (kind === "auth-password") {
+    return "Creates spec.auth.passwordSecretRef for shared gateway password auth.";
+  }
+  return "Creates a raw spec.credentials entry for a custom domain or provider.";
+}
+
+function renderTypedChannelConfigHints(kind) {
+  if (kind === "channel-telegram") {
+    els.integrationDmPolicyHint.textContent = "Controls who can direct-message the Telegram bot.";
+    els.integrationAllowFrom.placeholder = "12345, 67890";
+    els.integrationAllowFromHint.innerHTML = 'Comma-separated Telegram user IDs. Use <code>*</code> with Open for everyone.';
+    return;
+  }
+  if (kind === "channel-slack") {
+    els.integrationDmPolicyHint.textContent = "Controls who can direct-message the Slack app.";
+    els.integrationAllowFrom.placeholder = "U123, U456";
+    els.integrationAllowFromHint.innerHTML = 'Comma-separated Slack user IDs. Use <code>*</code> with Open for everyone.';
+    return;
+  }
+  els.integrationDmPolicyHint.textContent = "Controls direct-message access for this channel.";
+  els.integrationAllowFrom.placeholder = "*";
+  els.integrationAllowFromHint.innerHTML = 'Comma-separated sender IDs, or <code>*</code> for everyone when policy is Open.';
+}
+
+function splitList(value) {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function typedChannelConfigJSON(kind) {
+  if (kind !== "channel-telegram" && kind !== "channel-slack") {
+    return "";
+  }
+  const policy = els.integrationDmPolicy.value;
+  const allowFrom = splitList(els.integrationAllowFrom.value);
+  if (!policy && allowFrom.length === 0) {
+    return "";
+  }
+  if (policy === "allowlist" && allowFrom.length === 0) {
+    throw new Error("Allowlist DM policy needs at least one allowed sender.");
+  }
+  const config = {};
+  if (policy) {
+    config.dmPolicy = policy;
+  }
+  if (allowFrom.length > 0) {
+    config.allowFrom = allowFrom;
+  } else if (policy === "open") {
+    config.allowFrom = ["*"];
+  }
+  return JSON.stringify(config);
+}
+
+function persistIntegrations() {
+  const safe = state.integrations.map(({ secretValue, appSecretValue, ...integration }) => integration);
+  localStorage.setItem("openclaw-deployer.integrations", JSON.stringify(safe));
+}
+
+function renderIntegrations() {
+  els.integrationList.innerHTML = "";
+  if (state.integrations.length === 0) {
+    return;
+  }
+  for (const [idx, integration] of state.integrations.entries()) {
+    const item = document.createElement("div");
+    item.className = "integration-item";
+    const main = document.createElement("div");
+    main.className = "integration-item__main";
+    const title = document.createElement("p");
+    title.className = "integration-item__title";
+    title.textContent = integrationLabels[integration.kind] || integration.kind;
+    const meta = document.createElement("p");
+    meta.className = "integration-item__meta";
+    meta.textContent = integrationSummary(integration);
+    main.append(title, meta);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn btn--sm btn--danger";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      state.integrations.splice(idx, 1);
+      persistIntegrations();
+      renderIntegrations();
+      renderReview();
+    });
+    item.append(main, remove);
+    els.integrationList.appendChild(item);
+  }
+}
+
+function integrationSummary(integration) {
+  const name = integration.name || defaultIntegrationName(integration.kind);
+  if (integration.kind.startsWith("websearch-")) {
+    return `spec.webSearch provider ${integration.kind.replace("websearch-", "")}`;
+  }
+  if (integration.kind === "auth-password") {
+    return `spec.auth password Secret ${integration.secretName || "created on deploy"}`;
+  }
+  const secret = integration.secretName || (integration.secretValue ? "created on deploy" : "no Secret");
+  return `${name} · ${secret}`;
+}
+
+function buildIntegrationFromForm() {
+  const kind = els.integrationType.value;
+  const channelConfig = typedChannelConfigJSON(kind) || els.integrationChannelConfig.value.trim();
+  const integration = {
+    kind,
+    name: els.integrationName.value.trim(),
+    secretName: els.integrationSecretName.value.trim(),
+    secretKey: els.integrationSecretKey.value.trim(),
+    secretValue: els.integrationSecretValue.value.trim(),
+    appSecretName: els.integrationAppSecretName.value.trim(),
+    appSecretKey: els.integrationAppSecretKey.value.trim(),
+    appSecretValue: els.integrationAppSecretValue.value.trim(),
+    credentialType: els.integrationCredentialType.value,
+    domain: els.integrationDomain.value.trim(),
+    provider: els.integrationProvider.value.trim(),
+    header: els.integrationHeader.value.trim(),
+    valuePrefix: els.integrationValuePrefix.value,
+    pathPrefix: els.integrationPathPrefix.value.trim(),
+    channelConfig,
+  };
+  if (kind === "custom-credential" && !integration.name) {
+    throw new Error("Custom credentials need a credential name.");
+  }
+  if (kind === "channel-slack" && !integration.appSecretName && !integration.appSecretValue) {
+    throw new Error("Slack needs an app token value or app token Secret name.");
+  }
+  const noSecret = kind === "channel-whatsapp" || kind === "websearch-duckduckgo" || kind === "websearch-gemini";
+  if (!noSecret && !integration.secretName && !integration.secretValue) {
+    throw new Error("Provide a pasted secret value or an existing Secret name.");
+  }
+  if (integration.channelConfig) {
+    JSON.parse(integration.channelConfig);
+  }
+  return integration;
+}
+
+function clearIntegrationSecretInputs() {
+  els.integrationSecretValue.value = "";
+  els.integrationAppSecretValue.value = "";
+  els.integrationDmPolicy.value = "";
+  els.integrationAllowFrom.value = "";
+  els.integrationChannelConfig.value = "";
+}
+
 function setAdvancedOpen(open) {
-  els.advancedBody.hidden = !open;
-  els.advancedToggle.setAttribute("aria-expanded", String(open));
-  els.advancedCaret.classList.toggle("open", open);
+  setSectionOpen(els.advancedToggle, els.advancedBody, els.advancedCaret, open);
+}
+
+function setIntegrationOpen(open) {
+  setSectionOpen(els.integrationToggle, els.integrationBody, els.integrationCaret, open);
+}
+
+function setSectionOpen(toggle, body, caret, open) {
+  body.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  caret.classList.toggle("open", open);
 }
 
 // ---------- status alert + review ----------
@@ -541,12 +870,23 @@ function renderReview() {
   const vertex = isGoogleVertex();
   const source = els.filesystemSource.value;
   const credSet = (vertex ? els.gcpCredentials.value : els.apiKey.value).trim() !== "";
+  const secretName = effectiveSecretName();
+  const secretKey = effectiveSecretKey();
+  let credential = "Not set";
+  if (els.secretName.value.trim()) {
+    credential = `Existing Secret: ${secretName}/${secretKey}`;
+  } else if (credSet) {
+    credential = `Create Secret: ${secretName}/${secretKey}`;
+  } else if (state.exists && state.currentSecretNames.length > 0) {
+    credential = `Keep existing: ${state.currentSecretNames.join(", ")}`;
+  }
   const rows = [
     ["Namespace", els.namespace.value.trim() || "—"],
     ["Name", els.clawName.value.trim() || "—"],
     ["Provider", providerLabels[els.provider.value] || els.provider.value],
     ["Model", effectiveModel() || "—"],
-    ["Credential", credSet ? "Set" : "Not set"],
+    ["Credential", credential],
+    ["Integrations", state.integrations.length ? state.integrations.map((i) => integrationLabels[i.kind] || i.kind).join(", ") : "None"],
     ["Workspace", source === "git" ? "Git" : source === "upload" ? "Upload" : "None"],
     ["Managed by", inferredManagement()],
   ];
@@ -580,9 +920,10 @@ function validate() {
   if (!els.namespace.value.trim()) errs.namespace = "Namespace is required.";
   if (!els.clawName.value.trim()) errs.clawName = "OpenClaw name is required.";
   const cred = (vertex ? els.gcpCredentials.value : els.apiKey.value).trim();
-  if (!cred) {
-    errs.credential = vertex ? "Service account JSON is required." : "API key is required.";
-  } else if (vertex && !isSupportedGCPKey(cred)) {
+  const secretName = els.secretName.value.trim();
+  if (!cred && !secretName && !state.exists) {
+    errs.credential = vertex ? "Service account JSON or Secret name is required." : "API key or Secret name is required.";
+  } else if (vertex && cred && !isSupportedGCPKey(cred)) {
     errs.credential = 'Valid JSON with type "service_account" or "authorized_user" is required.';
   }
   if (vertex && !els.gcpProject.value.trim()) errs.gcpProject = "GCP project is required.";
@@ -596,7 +937,7 @@ function renderErrors(errs) {
   const inputs = {
     namespace: els.namespace,
     clawName: els.clawName,
-    credential: credInput,
+    credential: els.secretName.value.trim() ? els.secretName : credInput,
     gcpProject: els.gcpProject,
     gcpLocation: els.gcpLocation,
     gitURL: els.gitURL,
@@ -638,15 +979,94 @@ function generateYaml() {
     y += "    location: " + (els.gcpLocation.value.trim() || "<region>") + "\n";
   }
   y += "  credentialsSecretRef:\n";
-  y += "    name: " + name + "-provider\n";
+  y += "    name: " + effectiveSecretName() + "\n";
+  y += "    key: " + effectiveSecretKey() + "\n";
+  const credentialIntegrations = state.integrations.filter((i) => i.kind.startsWith("channel-") || i.kind === "custom-credential");
+  if (credentialIntegrations.length) {
+    y += "  credentials:\n";
+    for (const integration of credentialIntegrations) {
+      y += integrationCredentialYaml(integration);
+    }
+  }
+  const webSearch = state.integrations.find((i) => i.kind.startsWith("websearch-"));
+  if (webSearch) {
+    y += "  webSearch:\n";
+    y += "    provider: " + webSearch.kind.replace("websearch-", "") + "\n";
+    if (webSearch.kind === "websearch-brave" || webSearch.kind === "websearch-tavily") {
+      y += "    secretRef:\n";
+      y += "      name: " + (webSearch.secretName || "<created-secret>") + "\n";
+      y += "      key: " + (webSearch.secretKey || "api-key") + "\n";
+    }
+  }
+  const passwordAuth = state.integrations.find((i) => i.kind === "auth-password");
+  if (passwordAuth) {
+    y += "  auth:\n";
+    y += "    mode: password\n";
+    y += "    passwordSecretRef:\n";
+    y += "      name: " + (passwordAuth.secretName || "<created-secret>") + "\n";
+    y += "      key: " + (passwordAuth.secretKey || "password") + "\n";
+  }
   const source = els.filesystemSource.value;
   if (source === "git") {
     y += "  workspaceSource:\n    git:\n";
     y += "      url: " + (els.gitURL.value.trim() || "<git-url>") + "\n";
     if (els.gitRef.value.trim()) y += "      ref: " + els.gitRef.value.trim() + "\n";
     if (els.gitPath.value.trim()) y += "      path: " + els.gitPath.value.trim() + "\n";
+    if (els.gitSecretName.value.trim() || els.gitUsername.value.trim() || els.gitPassword.value) {
+      y += "      secretRef:\n";
+      y += "        name: " + (els.gitSecretName.value.trim() || "<created-git-secret>") + "\n";
+    }
   } else if (source === "upload") {
     y += "  workspaceSource:\n    configMap:\n      name: " + name + "-workspace\n";
+  }
+  return y;
+}
+
+function integrationCredentialYaml(integration) {
+  const name = integration.name || defaultIntegrationName(integration.kind);
+  let y = "    - name: " + name + "\n";
+  if (integration.kind.startsWith("channel-")) {
+    const channel = integration.kind.replace("channel-", "");
+    y += "      channel: " + channel + "\n";
+    if (channel !== "whatsapp") {
+      y += "      secretRef:\n";
+      y += "        - name: " + (integration.secretName || "<created-secret>") + "\n";
+      y += "          key: " + (integration.secretKey || defaultIntegrationSecretKey(integration.kind)) + "\n";
+      if (channel === "slack") {
+        y += "          role: botToken\n";
+        y += "        - name: " + (integration.appSecretName || integration.secretName || "<created-secret>") + "\n";
+        y += "          key: " + (integration.appSecretKey || "app-token") + "\n";
+        y += "          role: appToken\n";
+      }
+    }
+    if (integration.channelConfig) {
+      y += "      channelConfig:\n";
+      y += yamlObject(JSON.parse(integration.channelConfig), "        ");
+    }
+    return y;
+  }
+  y += "      type: " + (integration.credentialType || "bearer") + "\n";
+  if (integration.provider) y += "      provider: " + integration.provider + "\n";
+  if (integration.domain) y += "      domain: " + integration.domain + "\n";
+  if (integration.secretName || integration.secretValue) {
+    y += "      secretRef:\n";
+    y += "        - name: " + (integration.secretName || "<created-secret>") + "\n";
+    y += "          key: " + (integration.secretKey || "api-key") + "\n";
+  }
+  return y;
+}
+
+function yamlObject(value, indent) {
+  let y = "";
+  for (const [key, child] of Object.entries(value)) {
+    if (Array.isArray(child)) {
+      y += `${indent}${key}: [${child.map((item) => JSON.stringify(item)).join(", ")}]\n`;
+    } else if (child && typeof child === "object") {
+      y += `${indent}${key}:\n`;
+      y += yamlObject(child, indent + "  ");
+    } else {
+      y += `${indent}${key}: ${JSON.stringify(child)}\n`;
+    }
   }
   return y;
 }
@@ -714,6 +1134,8 @@ els.provision.addEventListener("click", async () => {
   const model = els.model.value.trim();
   const vertex = isGoogleVertex();
   const apiKey = (vertex ? els.gcpCredentials.value : els.apiKey.value).trim();
+  const secretName = els.secretName.value.trim();
+  const secretKey = els.secretKey.value.trim();
   const gcpProject = els.gcpProject.value.trim();
   const gcpLocation = els.gcpLocation.value.trim();
   const management = inferredManagement();
@@ -721,6 +1143,10 @@ els.provision.addEventListener("click", async () => {
   const gitURL = els.gitURL.value.trim();
   const gitRef = els.gitRef.value.trim();
   const gitPath = els.gitPath.value.trim();
+  const gitSecretName = els.gitSecretName.value.trim();
+  const gitUsername = els.gitUsername.value.trim();
+  const gitPassword = els.gitPassword.value;
+  const integrations = state.integrations;
 
   if (source === "upload" && els.agentFiles.files.length === 0) {
     setAdvancedOpen(true);
@@ -739,16 +1165,23 @@ els.provision.addEventListener("click", async () => {
       configMapName = await uploadAgentFiles(namespace, name, els.agentFiles.files);
       filesystemSource = "configmap";
     }
-    setStatus(state.exists ? "Adding or updating provider…" : "Creating OpenClaw…");
+    setStatus(state.exists ? "Updating Claw YAML…" : "Creating OpenClaw…");
     const current = await api("/api/provision", {
       method: "POST",
       body: JSON.stringify({
-        namespace, name, provider, model, apiKey, gcpProject, gcpLocation, management,
-        filesystemSource, gitURL, gitRef, gitPath, configMapName,
+        namespace, name, provider, model, apiKey, secretName, secretKey, gcpProject, gcpLocation, management,
+        filesystemSource, gitURL, gitRef, gitPath, gitSecretName, gitUsername, gitPassword, configMapName,
+        integrations,
       }),
     });
     els.apiKey.value = "";
     els.gcpCredentials.value = "";
+    els.gitPassword.value = "";
+    for (const integration of state.integrations) {
+      delete integration.secretValue;
+      delete integration.appSecretValue;
+    }
+    persistIntegrations();
     els.agentFiles.value = "";
     state.selectedName = current.name || name;
     els.clawName.value = state.selectedName;
@@ -766,6 +1199,8 @@ els.reset.addEventListener("click", () => {
   els.clawName.value = "instance";
   els.provider.value = "openrouter";
   els.model.value = "";
+  els.secretName.value = "";
+  els.secretKey.value = "";
   els.gcpProject.value = "";
   els.gcpLocation.value = defaultGCPLocations.openrouter || "";
   els.apiKey.value = "";
@@ -774,11 +1209,18 @@ els.reset.addEventListener("click", () => {
   els.gitURL.value = "";
   els.gitRef.value = "";
   els.gitPath.value = "";
+  els.gitSecretName.value = "";
+  els.gitUsername.value = "";
+  els.gitPassword.value = "";
   els.agentFiles.value = "";
+  state.integrations = [];
+  persistIntegrations();
   els.uploadName.hidden = true;
   renderErrors({});
   renderModelOptions();
   renderCredentialFields();
+  renderCredentialSecretHint();
+  renderIntegrations();
   renderFilesystemSource();
   refresh();
 });
@@ -837,6 +1279,10 @@ async function uploadAgentFiles(namespace, name, fileList) {
 // ---------- listeners ----------
 els.themeToggle.addEventListener("click", () => applyTheme(state.theme === "dark" ? "light" : "dark"));
 
+els.detailsToggle.addEventListener("click", () => setSectionOpen(els.detailsToggle, els.detailsBody, els.detailsCaret, els.detailsBody.hidden));
+els.providerToggle.addEventListener("click", () => setSectionOpen(els.providerToggle, els.providerBody, els.providerCaret, els.providerBody.hidden));
+els.credentialToggle.addEventListener("click", () => setSectionOpen(els.credentialToggle, els.credentialBody, els.credentialCaret, els.credentialBody.hidden));
+els.integrationToggle.addEventListener("click", () => setIntegrationOpen(els.integrationBody.hidden));
 els.advancedToggle.addEventListener("click", () => setAdvancedOpen(els.advancedBody.hidden));
 
 els.previewOpen.addEventListener("click", openPreview);
@@ -868,6 +1314,7 @@ els.provider.addEventListener("change", () => {
   state.model = "";
   renderModelOptions();
   renderCredentialFields();
+  renderCredentialSecretHint();
   localStorage.setItem("openclaw-deployer.provider", state.provider);
   localStorage.setItem("openclaw-deployer.model", "");
   revalidate();
@@ -890,12 +1337,37 @@ for (const [el, key] of [
   [els.gitURL, "gitURL"],
   [els.gitRef, "gitRef"],
   [els.gitPath, "gitPath"],
+  [els.gitSecretName, "gitSecretName"],
 ]) {
   el.addEventListener("change", () => {
     state[key] = el.value.trim();
     localStorage.setItem(`openclaw-deployer.${key}`, state[key]);
   });
 }
+
+els.integrationType.addEventListener("change", () => {
+  renderIntegrationFields();
+  renderReview();
+});
+els.integrationCredentialType.addEventListener("change", renderIntegrationFields);
+
+els.integrationAdd.addEventListener("click", () => {
+  try {
+    const integration = buildIntegrationFromForm();
+    state.integrations.push(integration);
+    persistIntegrations();
+    clearIntegrationSecretInputs();
+    setIntegrationOpen(true);
+    renderIntegrations();
+    renderReview();
+  } catch (error) {
+    renderAlert({
+      kind: "danger",
+      title: "Integration needs attention",
+      body: error.message,
+    });
+  }
+});
 
 els.gcpProject.addEventListener("change", () => {
   state.gcpProject = els.gcpProject.value.trim();
@@ -909,11 +1381,24 @@ els.model.addEventListener("change", () => {
   state.model = els.model.value.trim();
   localStorage.setItem("openclaw-deployer.model", state.model);
 });
+els.secretName.addEventListener("change", () => {
+  state.secretName = els.secretName.value.trim();
+  localStorage.setItem("openclaw-deployer.secretName", state.secretName);
+  renderCredentialSecretHint();
+  revalidate();
+});
+els.secretKey.addEventListener("change", () => {
+  state.secretKey = els.secretKey.value.trim();
+  localStorage.setItem("openclaw-deployer.secretKey", state.secretKey);
+  renderCredentialSecretHint();
+  revalidate();
+});
 
 // Keep the Review summary live, and re-run validation once the user has tried
 // to deploy so inline errors clear as fields are fixed.
 const formEl = document.getElementById("form");
 formEl.addEventListener("input", () => {
+  renderCredentialSecretHint();
   renderReview();
   revalidate();
 });
